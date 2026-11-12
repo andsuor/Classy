@@ -1,6 +1,7 @@
 package com.themoon.y1.adapters
 
 import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AbsListView
@@ -9,11 +10,13 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.themoon.y1.MainActivity
+import com.themoon.y1.R
 import com.themoon.y1.StoragePaths
 import com.themoon.y1.ThemeManager
 import com.themoon.y1.core.TimeFormat
 import com.themoon.y1.lists.ArtRow
 import com.themoon.y1.lists.RowTexts
+import com.themoon.y1.managers.AlbumCoverManager
 import com.themoon.y1.managers.AudioPlayerManager
 import com.themoon.y1.models.SongItem
 import com.themoon.y1.podcasts.PodcastDownloadManager
@@ -26,7 +29,9 @@ import java.util.Collections
 import java.util.Date
 
 class SongListAdapter(
-    private val items: List<SongItem>
+    private val items: List<SongItem>,
+    /** Playlist rows: the cover, the title over the artist, and the track length at the right. */
+    private val artRows: Boolean = false
 ) : BaseAdapter(), RowTexts {
 
     private val showShuffleRow: Boolean = determineShuffleRow(items)
@@ -65,6 +70,7 @@ class SongListAdapter(
         val song = items[songPosition]
 
         val main = MainActivity.instance
+        if (artRows && main != null) return getArtRowView(main, convertView, song, position, songPosition)
         var iconCode = if (main != null && main.isAudiobookLibraryMode) "\uE310" else "\uE405"
         var displayTitle = song.title
         var customColor = 0
@@ -306,6 +312,46 @@ class SongListAdapter(
         return row
     }
 
+    private fun getArtRowView(main: MainActivity, convertView: View?, song: SongItem, position: Int, songPosition: Int): View {
+        val art = ArtRow.of(convertView, main)
+        val path = song.file.absolutePath
+        val artist = song.artist.takeUnless { it.isBlank() || it.equals("Unknown Artist", ignoreCase = true) } ?: ""
+        art.bind(song.title, artist, durations[path] ?: "")
+        art.image.tag = path
+        if (!durations.containsKey(path)) loadDuration(path, art)
+
+        val covers = AlbumCoverManager.getInstance()
+        val cover = covers.getThumbnailDirect(AlbumCoverManager.getAlbumKey(song.file, song.album))
+        if (cover != null) {
+            art.image.setImageBitmap(cover)
+        } else {
+            art.image.setImageResource(R.drawable.default_album)
+            covers.loadCoverAsync(song, object : AlbumCoverManager.CoverCallback {
+                override fun onCoverLoaded(albumKey: String, cover: Bitmap?, reflection: Bitmap?) {
+                    if (cover != null && art.image.tag == path) art.image.setImageBitmap(cover)
+                }
+            })
+        }
+
+        art.view.setOnClickListener {
+            main.virtualListSelectedIndex = position
+            main.clickFeedback()
+            AudioPlayerManager.getInstance().playTrackList(main.virtualSongList, songPosition)
+            main.changeScreen(3)
+        }
+        art.view.setOnLongClickListener {
+            main.clickFeedback()
+            main.isLongPressConsumed = true
+            when (main.currentBrowserMode) {
+                5 -> main.showRemoveFromFavoritesDialog(song.file)
+                7 -> main.showRemoveFromPlaylistDialog(song.file)
+                else -> main.showAddToPlaylistDialog(song.file)
+            }
+            true
+        }
+        return art.view
+    }
+
     private fun applyDefaultFocusListener(btn: View, position: Int, title: String, customColor: Int) {
         val main = MainActivity.instance ?: return
         val normalColor = if (customColor != 0) customColor else ThemeManager.getTextColorPrimary()
@@ -358,6 +404,31 @@ class SongListAdapter(
         const val VIEW_TYPE_SONG: Int = 1
 
         private var shuffleTileBitmap: Bitmap? = null
+
+        // ponytail: track lengths are read from the files when a row first shows and kept in memory only.
+        // Keep them in the library cache if the short wait after each start matters.
+        private val durations = java.util.concurrent.ConcurrentHashMap<String, String>()
+        private val durationWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+        private fun loadDuration(path: String, art: ArtRow) {
+            durationWorker.execute {
+                var text = durations[path] ?: ""
+                if (!durations.containsKey(path)) {
+                    val mmr = MediaMetadataRetriever()
+                    try {
+                        mmr.setDataSource(path)
+                        val ms = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                        if (ms > 0) text = TimeFormat.format(ms)
+                    } catch (e: Exception) {
+                        // No length for this file: the row shows none
+                    } finally {
+                        try { mmr.release() } catch (e: Exception) {}
+                    }
+                    durations[path] = text
+                }
+                art.view.post { if (art.image.tag == path) art.setTrailing(text) }
+            }
+        }
 
         private fun determineShuffleRow(items: List<SongItem>?): Boolean {
             if (items.isNullOrEmpty()) return false

@@ -409,6 +409,7 @@ class SongListAdapter(
         // Keep them in the library cache if the short wait after each start matters.
         private val durations = java.util.concurrent.ConcurrentHashMap<String, String>()
         private val durationWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
+        private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
         private fun loadDuration(path: String, art: ArtRow) {
             durationWorker.execute {
@@ -426,7 +427,8 @@ class SongListAdapter(
                     }
                     durations[path] = text
                 }
-                art.view.post { if (art.image.tag == path) art.setTrailing(text) }
+                // Not View.post: from a worker thread it is lost while the row is not attached (Android 4.4)
+                mainHandler.post { if (art.image.tag == path) art.setTrailing(text) }
             }
         }
 

@@ -54,4 +54,51 @@ class RowFocusTest {
         assertNull(next(0, -1, 1, loop = true))
         assertNull(next(3, -1, 1, loop = true) { false })
     }
+
+    // A list 0..290 px showing rows 10..14, 60 px tall with a 1 px divider; row 14 is cut by the bottom edge.
+    private val shown = mapOf(10 to intArrayOf(0, 60), 11 to intArrayOf(61, 121), 12 to intArrayOf(122, 182),
+        13 to intArrayOf(183, 243), 14 to intArrayOf(244, 304))
+
+    private fun scroll(position: Int, fade: Int = 0, count: Int = 100) =
+        RowFocus.scrollDelta(position, 10, 14, count, { shown[it] }, 1, 0, 290, fade)
+
+    @Test
+    fun aRowOnTheScreenNeedsNoScroll() {
+        assertEquals(0, scroll(12))
+    }
+
+    @Test
+    fun aRowTheEdgeCutsScrollsUpJustEnough() {
+        assertEquals(14, scroll(14))
+    }
+
+    @Test
+    fun theRowBelowTheScreenScrollsInOneRowAtTheBottom() {
+        // Row 15 comes at 305..365, so the list moves 75 px and row 15 ends at the bottom edge
+        assertEquals(75, scroll(15))
+    }
+
+    @Test
+    fun theRowAboveTheScreenScrollsInOneRowAtTheTop() {
+        // Row 9 comes at -61..-1
+        assertEquals(-61, scroll(9))
+    }
+
+    @Test
+    fun withFadeTheRowStaysOneFadeFromTheEdge() {
+        assertEquals(75 + 40, scroll(15, fade = 40))
+        assertEquals(-61 - 40, scroll(9, fade = 40))
+    }
+
+    @Test
+    fun theLastRowGoesToTheEdgeEvenWithFade() {
+        assertEquals(75, scroll(15, fade = 40, count = 16))
+    }
+
+    @Test
+    fun aRowFartherAwayIsNotAOneRowScroll() {
+        assertNull(scroll(16))
+        assertNull(scroll(8))
+        assertNull(scroll(0))
+    }
 }

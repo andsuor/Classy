@@ -154,6 +154,8 @@ object ListEdges {
      */
     internal fun revealRow(list: ListView, row: View) {
         if (!isFade(list.context) || list.isInLayout || list.height == 0 || row.parent !== list) return
+        // The row came in with a glide, which ends clear of the fades (RowFocus.settle)
+        if (com.themoon.y1.navigation.RowFocus.isGliding(list)) return
         val pos = list.getPositionForView(row)
         if (pos == AdapterView.INVALID_POSITION) return
         val delta = revealDelta(

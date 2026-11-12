@@ -141,6 +141,7 @@ class ListScreen(
      * focus): then the step starts from that row ([longIndex]), not from the first row.
      */
     private fun stepLong(s: ListSpec, lv: ListView, delta: Int): Int? {
+        RowFocus.settle(lv)
         val current = selectedIndex(s).takeIf { it >= 0 } ?: longIndex
         val adapter = lv.adapter
         val i = RowFocus.next(lv.count, current, delta, RowFocus.isLoopOn(lv.context)) { adapter?.isEnabled(it) != false }

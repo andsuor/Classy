@@ -5,11 +5,9 @@ import com.themoon.y1.Prefs
 import android.content.Context
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewTreeObserver
 import android.widget.AbsListView
 import android.widget.ListView
 import com.themoon.y1.views.ListEdges
-import java.util.WeakHashMap
 
 /**
  * One wheel step in a list of rows, the same for all row lists: the next selectable row (visible and focusable,
@@ -18,12 +16,6 @@ import java.util.WeakHashMap
  * selectable row is selected.
  */
 object RowFocus {
-
-    /** How long a list takes to glide one row. */
-    private const val GLIDE_MS = 100
-
-    /** The row each list is gliding to, focused when the glide ends ([settle]). */
-    private val gliding = WeakHashMap<AbsListView, Int>()
 
     /** Settings → Controls → Wheel Loop Scroll (default On). */
     fun isLoopOn(context: Context): Boolean =
@@ -78,7 +70,6 @@ object RowFocus {
      * of the adapter is the row that cannot be selected. Returns the position of the new row, or null if it did not move.
      */
     fun step(list: AbsListView, delta: Int, loop: Boolean = isLoopOn(list.context)): Int? {
-        settle(list)
         val focus = list.findFocus()
         val current = if (focus == null || focus === list) -1 else list.getPositionForView(focus)
         val adapter = list.adapter
@@ -92,18 +83,20 @@ object RowFocus {
      * List Edges = Fade the row stays clear of the fades ([ListEdges.focusRow]).
      */
     fun showRow(list: AbsListView, position: Int) {
-        settle(list)
-        val delta = glideDelta(list, position)
-        if (delta == 0) {
-            list.getChildAt(position - list.firstVisiblePosition)?.requestFocus()
-            return
-        }
+        // The row next to the screen: the list moves by just that row, which comes in at the edge (an iPod list)
+        val delta = rowDelta(list, position)
         if (delta != null) {
-            gliding[list] = position
-            focusWhenShown(list, position)
-            list.smoothScrollBy(delta, GLIDE_MS)
-            list.postDelayed({ if (gliding[list] == position) settle(list) }, GLIDE_MS + 20L)
-            return
+            if (delta != 0) list.scrollListBy(delta)
+            val row = list.getChildAt(position - list.firstVisiblePosition)
+            if (row != null) {
+                // A ListView lays out again around its selected row, so the selection follows, or the list jumps
+                // back. A ListView-typed call: on the smart-cast list it goes to AbsListView.setSelectionFromTop
+                // (API 21).
+                val listView: ListView? = list as? ListView
+                listView?.setSelectionFromTop(position, row.top - list.paddingTop)
+                row.requestFocus()
+                return
+            }
         }
         if (list is ListView && ListEdges.focusRow(list, position)) return
         val first = list.firstVisiblePosition
@@ -114,47 +107,8 @@ object RowFocus {
         list.post { list.getChildAt(position - list.firstVisiblePosition)?.requestFocus() }
     }
 
-    /**
-     * Ends a glide that has not finished (the wheel turned again, or its time is up): the list goes straight to
-     * where it was going and that row gets the focus, so the next step starts from it.
-     */
-    fun settle(list: AbsListView) {
-        val position = gliding.remove(list) ?: return
-        list.smoothScrollBy(0, 0)
-        glideDelta(list, position)?.let { if (it != 0) list.scrollListBy(it) }
-        val row = list.getChildAt(position - list.firstVisiblePosition) ?: return
-        // A ListView lays out again around its selected row, so the selection follows, or the list jumps back.
-        // A ListView-typed call: on the smart-cast list it goes to AbsListView.setSelectionFromTop (API 21).
-        val listView: ListView? = list as? ListView
-        listView?.setSelectionFromTop(position, row.top - list.paddingTop)
-        row.requestFocus()
-    }
-
-    /** True while [list] glides to a row ([showRow]); List Edges then leaves the scroll to the glide. */
-    fun isGliding(list: View): Boolean = gliding.containsKey(list)
-
-    /**
-     * Moves the focus to row [position] in the first frame that shows it, so the highlight comes in with the row
-     * instead of after the glide.
-     */
-    private fun focusWhenShown(list: AbsListView, position: Int) {
-        val observer = list.viewTreeObserver
-        observer.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
-            override fun onPreDraw(): Boolean {
-                if (gliding[list] != position) {
-                    list.viewTreeObserver.removeOnPreDrawListener(this)
-                    return true
-                }
-                val row = list.getChildAt(position - list.firstVisiblePosition) ?: return true
-                list.viewTreeObserver.removeOnPreDrawListener(this)
-                row.requestFocus()
-                return true
-            }
-        })
-    }
-
     /** [scrollDelta] for row [position] of [list] as it shows now. */
-    private fun glideDelta(list: AbsListView, position: Int): Int? {
+    private fun rowDelta(list: AbsListView, position: Int): Int? {
         if (list.childCount == 0 || list.height == 0) return null
         val first = list.firstVisiblePosition
         val fade = if (list is ListView && ListEdges.isFade(list.context)) list.verticalFadingEdgeLength else 0

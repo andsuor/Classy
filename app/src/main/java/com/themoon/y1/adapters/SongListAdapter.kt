@@ -316,9 +316,11 @@ class SongListAdapter(
         val art = ArtRow.of(convertView, main)
         val path = song.file.absolutePath
         val artist = song.artist.takeUnless { it.isBlank() || it.equals("Unknown Artist", ignoreCase = true) } ?: ""
-        art.bind(song.title, artist, durations[path] ?: "")
+        // The scan keeps the length; a library cache from before it did is read from the file once
+        val length = if (song.durationMs > 0L) TimeFormat.format(song.durationMs) else durations[path]
+        art.bind(song.title, artist, length ?: "")
         art.image.tag = path
-        if (!durations.containsKey(path)) loadDuration(path, art)
+        if (length == null) loadDuration(path, art)
 
         val covers = AlbumCoverManager.getInstance()
         val cover = covers.getThumbnailDirect(AlbumCoverManager.getAlbumKey(song.file, song.album))
@@ -405,8 +407,7 @@ class SongListAdapter(
 
         private var shuffleTileBitmap: Bitmap? = null
 
-        // ponytail: track lengths are read from the files when a row first shows and kept in memory only.
-        // Keep them in the library cache if the short wait after each start matters.
+        // Lengths of songs whose cache entry has none, read when a row first shows (kept until Classy restarts)
         private val durations = java.util.concurrent.ConcurrentHashMap<String, String>()
         private val durationWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
         private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())

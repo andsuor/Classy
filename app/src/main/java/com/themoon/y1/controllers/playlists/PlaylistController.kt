@@ -168,9 +168,9 @@ class PlaylistController(
         val tagged = song?.title?.takeIf { it.isNotBlank() } ?: file.nameWithoutExtension
         // A soundtrack title often ends with (From "the album"), which takes the whole row: the album has it already
         val title = tagged.replace(FROM_SUFFIX, "").takeIf { it.isNotBlank() } ?: tagged
-        // Several artists are one tag with ";" between them
-        val artist = song?.artist?.split(';')?.map { it.trim() }?.filter { it.isNotEmpty() }?.distinct()?.joinToString(", ")
-        return SongItem(file, title, artist, song?.album)
+        val row = SongItem(file, title, song?.artist?.let { com.themoon.y1.models.ArtistNames.display(it) }, song?.album)
+        row.durationMs = song?.durationMs ?: 0L
+        return row
     }
 
     fun parseM3uFile(m3uFile: File): List<SongItem> {
